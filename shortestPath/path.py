@@ -97,7 +97,7 @@ def find_shortest_paths_between_ES(graph, devices):
     return all_paths
 
 def main():
-    devices, links = parse_topology('small-topology.v2.csv')
+    devices, links = parse_topology('testData/'+'small-topology.v2.csv')
     
     graph = build_graph(devices, links)
     
@@ -108,7 +108,7 @@ def main():
     all_paths = find_shortest_paths_between_ES(graph, devices)
 
     # Write to CSV
-    with open('shortest_paths_between_ES.csv', 'w', newline='') as csvfile:
+    with open('testData/'+'shortest_paths.csv', 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(['Source', 'Destination', 'Path'])
         writer.writerows(all_paths)
