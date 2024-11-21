@@ -341,28 +341,24 @@ class Graph:
                     f'{stream_name}, {round(wcd*1e6,3)}, {self.streams[0]["deadline"]}, {self.stream_paths[stream_name]}'.split(','))
 
 
-# Example usage
-topology_file = 'topology.csv'  # Replace with your actual file path
-streams_file = 'streams.csv'  # Replace with your actual file path
-
-graph = Graph()
-graph.compute_worst_case_delay_for_all_streams(
-    topology_file=topology_file, streams_file=streams_file, output_file='output.csv', verbose=True)
-
 if __name__ == '__main__':
-    # use arogparse to get the file paths
     parser = argparse.ArgumentParser(
         description='Compute worst-case delay for all streams')
-    parser.add_argument('--topology_file', '-tf', default='topology.scv',
+    parser.add_argument('--topology_file', '-tf', default='topology.csv',
                         type=str, help='Path to the topology CSV file')
     parser.add_argument('--streams_file', '-sf', default='streams.csv',
                         type=str, help='Path to the streams CSV file')
-    args = parser.parse_args()
+    parser.add_argument('--output_file', '-o', default='output.csv',
+                        type=str, help='Path to the output CSV file')
+    parser.add_argument('--verbose', '-v', action='store_true',
+                        help='Enable verbose mode for debugging')
 
-    # Example usage
-    topology_file = 'topology.csv'  # Replace with your actual file path
-    streams_file = 'streams.csv'  # Replace with your actual file path
+    args = parser.parse_args()
 
     graph = Graph()
     graph.compute_worst_case_delay_for_all_streams(
-        topology_file=args.topology_file, streams_file=args.streams_file, output_file='output.csv', verbose=True)
+        topology_file=args.topology_file,
+        streams_file=args.streams_file,
+        output_file=args.output_file,
+        verbose=args.verbose
+    )
