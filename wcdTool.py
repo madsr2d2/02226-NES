@@ -1,4 +1,3 @@
-
 import networkx as nx
 import csv
 import argparse
@@ -11,6 +10,13 @@ class Graph:
         self.stream_paths = {}  # Dictionary to store paths for each stream
         # Dictionary to store queue assignments for each output port
         self.queue_assignments = {}
+        self.streams = []
+
+        # Default units for period, size, deadline and link rate
+        self.period_unit = 1e-6  # 1 us
+        self.size_unit = 8  # 1 byte
+        self.deadline_unit = 1e-6  # 1 us
+        self.r_link = 1e9  # 1 Gbps link rate
 
     def load_from_csv(self, topology_file):
         """
@@ -54,11 +60,43 @@ class Graph:
 
     def load_streams(self, streams_file):
         """
-        Loads stream information from a CSV file.
+        Loads stream information from a CSV file and units from the config.ini file.
 
         Args:
             streams_file (str): Path to the streams CSV file.
         """
+
+        # read config file to get the units
+        config_file = 'config.ini'  # default config file
+
+        with open(config_file, 'r') as file:
+            for line in file:
+                if 'PeriodUnit' in line:
+                    period_unit = line.split('=')[1].strip()
+                    if period_unit == 'MICROSECOND':
+                        self.period_unit = 1e-6
+                    elif period_unit == 'MILLISECOND':
+                        self.period_unit = 1e-3
+                    elif period_unit == 'SECOND':
+                        self.period_unit = 1
+                elif 'DeadlineUnit' in line:
+                    deadline_unit = line.split('=')[1].strip()
+                    if deadline_unit == 'MICROSECOND':
+                        self.deadline_unit = 1e-6
+                    elif deadline_unit == 'MILLISECOND':
+                        self.deadline_unit = 1e-3
+                    elif deadline_unit == 'SECOND':
+                        self.deadline_unit = 1
+                elif 'SizeUnit' in line:
+                    size_unit = line.split('=')[1].strip()
+                    if size_unit == 'BYTE':
+                        self.size_unit = 8
+                    elif size_unit == 'BIT':
+                        self.size_unit = 1
+
+        # Convert units of link rate to be consistent with period, size and deadline
+        self.r_link = self.period_unit*self.r_link / self.size_unit
+
         streams = []
         with open(streams_file, 'r') as file:
             reader = csv.reader(file)
@@ -69,15 +107,11 @@ class Graph:
                     'type': row[2].strip(),
                     'source': row[3].strip(),
                     'destination': row[4].strip(),
-                    'size': int(row[5])*8,
+                    'size': int(row[5]),
                     'period': float(row[6]),
                     'deadline': float(row[7])
                 })
         self.streams = streams
-
-        # debug print
-        # for stream in self.streams:
-        #     print(stream)
 
     def find_shortest_path(self, node_a, node_b):
         """
@@ -146,7 +180,7 @@ class Graph:
                 self.stream_paths[stream['name']] = '->'.join(annotated_path)
 
                 # Debug output
-                # print(f"{stream['name']} from {source} to {destination}: {self.stream_paths[stream['name']]}")
+                # print(f"{stream['name']} from {source} to {destination}: {self.stream_        r_link = 1000000000  # Assume 1 Gbps link rate for nowpaths[stream['name']]}")
             else:
                 print(
                     f"No path found for Stream {stream['name']} from {source} to {destination}")
@@ -199,9 +233,6 @@ class Graph:
         path = self.stream_paths[stream_name].split('->')
         stream = next(s for s in self.streams if s['name'] == stream_name)
         b = stream['size'] + header_size  # Include Ethernet frame overhead
-        r = b / stream['period']
-        l_min = b  # Minimum frame size
-        r_link = 1000000000  # Assume 1 Gbps link rate for now
         total_delay = 0
 
         if verbose:
@@ -219,11 +250,9 @@ class Graph:
             else:
                 output_port = edge_data['destination_port']
 
-            # Gather all streams at this output port across priority levels
-            all_interfering_streams = [
-                s_name for k, streams in self.queue_assignments.items()
-                if k[0] == current_node and k[2] == output_port for s_name in streams
-            ]
+            # Gather all streams at this output port across priority levels (including current stream)
+            all_interfering_streams = [s_name for k, streams in self.queue_assignments.items()
+                                       if k[0] == current_node and k[2] == output_port for s_name in streams]
 
             # Organize interfering streams by priority level relative to `stream['pcp']`
             higher_priority_streams = []
@@ -231,9 +260,8 @@ class Graph:
             lower_priority_streams = []
 
             for s_name in all_interfering_streams:
-
                 s_data = next(
-                    (s for s in self.streams if s['name'] == s_name and s['name'] != stream_name), None)
+                    (s for s in self.streams if s['name'] == s_name), None)
                 if s_data:
                     if s_data['pcp'] > stream['pcp']:
                         higher_priority_streams.append(s_name)
@@ -256,68 +284,71 @@ class Graph:
                 for s_name in higher_priority_streams
                 for s_data in self.streams if s_data['name'] == s_name)
 
-            # Calculate b_H once per hop as the total burst size of all higher-priority streams
+            # Calculate b_H: Total burst size of all higher-priority streams
             b_H = sum(
                 (s_data['size'] + header_size) for s_name in higher_priority_streams
                 for s_data in self.streams if s_data['name'] == s_name)
 
-            # Calculate l_L once per hop as the maximum size of lower-priority streams
+            # Calculate l_L: Maximum size of lower-priority streams
             l_L = max(
                 [(s_data['size'] + header_size) for s_name in lower_priority_streams
                  for s_data in self.streams if s_data['name'] == s_name] or [0])
 
-            # TODO
-            #######################################################################################
-            # I dont think this is the correct way to calculate b_C_j. Why would we sum the burst of all same-priority interfering streams to get the worst-case scenario?
-            # Calculate b_C_j as the sum of burst of any same-priority interfering stream
-            # b_C_j = sum(
-            #     [(s_data['size'] + header_size) for s_name in same_priority_streams
-            #      for s_data in self.streams if s_data['name'] == s_name])
-
-            # Patrick solution
-            temp_list = [(s_data['size'] + header_size) for s_name in same_priority_streams
-                         for s_data in self.streams if s_data['name'] == s_name]
-            # exclude min burst from temp_list
-            if len(temp_list) > 1:
-                temp_list.remove(min(temp_list))
-            else:
-                temp_list = [0]
-            b_C_j = sum(temp_list)
-
-            # I think is the correct way to calculate b_C_j. It selects the max burst of the same priority streams, thus ensuring the worst-case scenario. This is same as the eq 10 in the project description.
-            # Calculate b_C_j as the max of burst of any same-priority interfering stream
-            # b_C_j = max(
-            #     [(s_data['size'] + header_size) for s_name in same_priority_streams
-            #      for s_data in self.streams if s_data['name'] == s_name] or [0])
-            #######################################################################################
-
-            # Debug output for r_H, b_H, l_L and b_C_j
+            # Degug output for r_H, b_H, l_L
             if verbose:
                 print(
-                    f"    Calculated b_H = {b_H}, b_C_j = {b_C_j}, b = {b}, l_min = {l_min}, l_L = {l_L}, r = {r_link}, r_H = {r_H}")
+                    f"    For {stream_name}: b_total_H = {b_H}, l_max_L = {l_L}, r = {self.r_link}, r_total_H = {r_H}")
+                print("\n    Iterating through same-priority streams:")
 
-            # Calculate the per-hop delay using the worst-case conditions at this hop
-            try:
-                per_hop_delay = (b_H + b_C_j + (b - l_min) +
-                                 l_L) / (r_link - r_H) + (l_min / r_link)
-            except:
-                return None
+            # Do eq 10 in the project description
+            temp_list = []  # List to store the results of the equation for each same-priority stream
+
+            for j in same_priority_streams:
+                # Sum burst of all same priority streams excluding stream j
+                b_C_j = sum([(s_data['size'] + header_size) for s_name in same_priority_streams if s_name !=
+                            j for s_data in self.streams if s_data['name'] == s_name])
+
+                # Get burst for stream j
+                b_j = next(
+                    (s_data['size'] + header_size for s_data in self.streams if s_data['name'] == j), 0)
+
+                # Get min minimum frame length of stream j (this is just the size of the stream for now...)
+                l_j_min = b_j
+
+                try:
+                    # Construct the equation and append to the list
+                    temp_result = (b_H + b_C_j + (b_j - l_j_min) + l_L) / \
+                        (self.r_link - r_H) + (l_j_min / self.r_link)
+                    temp_list.append(temp_result)
+                except:
+                    return None
+
+                if verbose:
+                    print(
+                        f"        For j = {j}: b_C_j = {b_C_j}, b_j = {b_j}, l_j_min = {l_j_min}, temp_result = {temp_result}")
+
+            # Calculate d_f as the max of the temp_list
+            d_f = max(temp_list)
 
             if verbose:
-                print(
-                    f"    Per-hop delay at {current_node} -> {next_node} for stream {stream_name}: {per_hop_delay}")
+                print(f"    d_f = {d_f}\n")
 
-            total_delay += per_hop_delay
+            total_delay += temp_result
 
         if verbose:
-            print(f"Total delay for stream {stream_name}: {total_delay}")
-        # return f'{stream_name}, {round(total_delay*1e6,3)}, {stream["deadline"]}, {self.stream_paths[stream_name]}'
+            print(f"d_f_total for {stream_name}: {total_delay}")
+
         return total_delay
 
     def compute_worst_case_delay_for_all_streams(self, topology_file, streams_file, output_file='output.csv', verbose=False):
         """
         Computes the worst-case per-hop delay for all streams over their respective paths.
         """
+
+        if verbose:
+            print(
+                f"Period unit: {self.period_unit}, Size unit: {self.size_unit}, Deadline unit: {self.deadline_unit}")
+
         # Build the graph
         self.load_from_csv(topology_file)
 
@@ -330,6 +361,7 @@ class Graph:
         # assign queues
         self.assign_queues()
 
+        # Compute worst-case delay for each stream and write to output file
         with open(output_file, 'w') as file:
             writer = csv.writer(file)
             writer.writerow(
@@ -338,20 +370,21 @@ class Graph:
                 wcd = self.compute_worst_case_delay(
                     stream_name, verbose=verbose)
                 writer.writerow(
-                    f'{stream_name}, {round(wcd*1e6,3)}, {self.streams[0]["deadline"]}, {self.stream_paths[stream_name]}'.split(','))
+                    f'{stream_name}, {round(wcd,3)}, {round(next(s_data["deadline"] for s_data in self.streams if s_data["name"] == stream_name),3)}, {self.stream_paths[stream_name]}'.split(','))
 
 
 if __name__ == '__main__':
+    # Use argparse to get the file paths and verbose flag
     parser = argparse.ArgumentParser(
         description='Compute worst-case delay for all streams')
     parser.add_argument('--topology_file', '-tf', default='topology.csv',
                         type=str, help='Path to the topology CSV file')
     parser.add_argument('--streams_file', '-sf', default='streams.csv',
                         type=str, help='Path to the streams CSV file')
-    parser.add_argument('--output_file', '-o', default='output.csv',
+    parser.add_argument('--output_file', '-of', default='output.csv',
                         type=str, help='Path to the output CSV file')
     parser.add_argument('--verbose', '-v', action='store_true',
-                        help='Enable verbose mode for debugging')
+                        help='Enable verbose output')
 
     args = parser.parse_args()
 
