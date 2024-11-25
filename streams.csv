@@ -1,8 +1,1 @@
-6,Stream_1,ats,ES_1,ES_2,812,1000,8225
-6,Stream_2,ats,ES_1,ES_2,781,1000,10156
-6,Stream_3,ats,ES_2,ES_4,694,2000,13729
-6,Stream_4,ats,ES_2,ES_1,510,1000,9256
-6,Stream_5,ats,ES_3,ES_2,1000,2000,6064
-6,Stream_6,ats,ES_3,ES_4,931,500,8651
-6,Stream_7,ats,ES_4,ES_2,923,1000,17954
-6,Stream_8,ats,ES_4,ES_2,718,2000,1539
+/home/madsr2d2/DTU/network/dtu-teaching/tsn-test-cases/simulation_output/streams.csv
